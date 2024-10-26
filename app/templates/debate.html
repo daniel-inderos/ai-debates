@@ -1,0 +1,228 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-8 offset-md-2">
+        <!-- Topic Input Section -->
+        <div class="card mb-4" id="topic-section">
+            <div class="card-body">
+                <h3 class="card-title">Start a New Debate</h3>
+                <div class="form-group">
+                    <label for="debate-topic">Enter Debate Topic:</label>
+                    <input type="text" class="form-control" id="debate-topic" 
+                           placeholder="Enter a topic for debate...">
+                </div>
+                <button class="btn btn-primary mt-3" onclick="startDebate()">
+                    Start Debate
+                </button>
+            </div>
+        </div>
+
+        <!-- Debate Section (initially hidden) -->
+        <div id="debate-section" style="display: none;">
+            <div class="card mb-4">
+                <div class="card-body">
+                    <h3 class="card-title">Current Debate</h3>
+                    <div class="debate-info mb-3">
+                        <strong>Topic:</strong> <span id="current-topic"></span><br>
+                        <strong>For:</strong> <span id="for-stance"></span><br>
+                        <strong>Against:</strong> <span id="against-stance"></span>
+                    </div>
+                    
+                    <!-- Debate History -->
+                    <div id="debate-history" class="mb-4"></div>
+
+                    <!-- Status -->
+                    <div class="debate-status text-muted">
+                        <small id="status-text">Debate in progress...</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let debateHistory = [];
+let currentSide = 'for';
+let isDebateActive = false;
+let roundCount = 0;
+const MAX_ROUNDS = 6; // Number of exchanges before ending
+
+function showLoading(message = 'AIs are debating...') {
+    document.getElementById('loadingOverlay').style.display = 'flex';
+    document.querySelector('.loading-text').textContent = message;
+    document.getElementById('status-text').textContent = message;
+}
+
+function hideLoading() {
+    document.getElementById('loadingOverlay').style.display = 'none';
+}
+
+function updateStatus(message) {
+    document.getElementById('status-text').textContent = message;
+}
+
+async function startDebate() {
+    const topic = document.getElementById('debate-topic').value;
+    if (!topic) {
+        alert('Please enter a debate topic');
+        return;
+    }
+
+    showLoading('Analyzing topic and preparing debate...');
+    isDebateActive = true;
+    roundCount = 0;
+
+    try {
+        const response = await fetch('/start_debate', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ topic })
+        });
+
+        const result = await response.json();
+        
+        if (result.status === 'success') {
+            document.getElementById('topic-section').style.display = 'none';
+            document.getElementById('debate-section').style.display = 'block';
+            
+            document.getElementById('current-topic').textContent = topic;
+            document.getElementById('for-stance').textContent = result.data.for_stance;
+            document.getElementById('against-stance').textContent = result.data.against_stance;
+            
+            window.debateData = {
+                topic,
+                for_stance: result.data.for_stance,
+                against_stance: result.data.against_stance,
+            };
+
+            // Start the debate rounds automatically
+            continueDebate();
+        } else {
+            alert(result.message);
+            isDebateActive = false;
+        }
+    } catch (error) {
+        alert('Error starting debate: ' + error.message);
+        isDebateActive = false;
+    } finally {
+        hideLoading();
+    }
+}
+
+async function continueDebate() {
+    if (!isDebateActive || roundCount >= MAX_ROUNDS) {
+        if (isDebateActive) {
+            endDebate();
+        }
+        return;
+    }
+
+    roundCount++;
+    await nextRound();
+    
+    // Longer delay between rounds (5 seconds)
+    setTimeout(continueDebate, 5000);
+}
+
+async function nextRound() {
+    showLoading(`${currentSide.toUpperCase()} AI is thinking... (Round ${roundCount}/${MAX_ROUNDS})`);
+    
+    try {
+        const response = await fetch('/debate_round', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                topic: window.debateData.topic,
+                debate_history: debateHistory,
+                current_side: currentSide
+            })
+        });
+
+        const result = await response.json();
+        
+        if (result.status === 'moderator_intervention') {
+            addToDebateHistory('moderator', result.message);
+            if (result.summary) {
+                addToDebateHistory('moderator', `Summary: ${result.summary}`);
+            }
+            if (result.argument) {
+                addToDebateHistory(currentSide, result.argument);
+                currentSide = result.next_side;
+            }
+        } else if (result.status === 'success') {
+            addToDebateHistory(currentSide, result.argument);
+            currentSide = result.next_side;
+        }
+    } catch (error) {
+        console.error('Error in debate round:', error);
+        updateStatus('Error in debate round. Continuing...');
+    } finally {
+        hideLoading();
+    }
+}
+
+async function endDebate() {
+    isDebateActive = false;
+    showLoading('Generating final summary...');
+    
+    try {
+        const response = await fetch('/end_debate', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                topic: window.debateData.topic,
+                debate_history: debateHistory
+            })
+        });
+
+        const result = await response.json();
+        
+        if (result.status === 'success') {
+            addToDebateHistory('moderator', `Final Summary: ${result.final_summary}`);
+            updateStatus('Debate completed');
+        }
+    } catch (error) {
+        console.error('Error ending debate:', error);
+        updateStatus('Error generating final summary');
+    } finally {
+        hideLoading();
+    }
+}
+
+function addToDebateHistory(side, text) {
+    const historyDiv = document.getElementById('debate-history');
+    const argumentDiv = document.createElement('div');
+    
+    argumentDiv.className = `debate-box ${side}-argument`;
+    argumentDiv.innerHTML = `
+        <strong>${side.charAt(0).toUpperCase() + side.slice(1)}:</strong>
+        <p>${text}</p>
+    `;
+    
+    // Add with fade-in effect
+    argumentDiv.style.opacity = '0';
+    historyDiv.appendChild(argumentDiv);
+    
+    // Smooth scroll
+    historyDiv.scrollTop = historyDiv.scrollHeight;
+    
+    // Fade in the new argument
+    setTimeout(() => {
+        argumentDiv.style.transition = 'opacity 0.5s';
+        argumentDiv.style.opacity = '1';
+    }, 100);
+    
+    debateHistory.push({ side, text });
+}
+</script>
+{% endblock %}
