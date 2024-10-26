@@ -35,24 +35,6 @@ An interactive web application where two AI models engage in structured debates 
 5. Open browser:
    http://localhost:5000
 
-## Project Structure
-
-/ai-debate
-  /app
-    /models
-      debate_model.py    - Handles debate responses
-      filter_model.py    - Screens topics
-      moderator_model.py - Manages debate quality
-      prompt_model.py    - Generates stances
-    /templates
-      base.html         - Base template
-      debate.html       - Main interface
-    __init__.py        - App initialization
-    routes.py          - API endpoints
-  config.py           - Configuration
-  requirements.txt    - Dependencies
-  run.py             - Entry point
-
 ## Usage Tips
 
 1. Enter any debate topic
@@ -74,7 +56,3 @@ An interactive web application where two AI models engage in structured debates 
 - User feedback system
 - Improved debate coherence
 - Debate history saving
-
-## License
-
-MIT License
